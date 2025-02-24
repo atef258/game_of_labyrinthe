@@ -8,285 +8,214 @@
 #include <algorithm>
 #include <queue>
 #include <unordered_map>
-
-// Structure pour représenter un nœud dans le graphe
-struct Node {
-    int x, y; // Coordonnées de la cellule
-    char letter; // Lettre dans la cellule
-    bool isExit; // Indique si c'est la case d'arrivée
-    bool isBlocked; // Indique si la case est bloquée
-    bool isSpecial; // Indique si la case est spéciale
-    bool visited; // Utilisé pour la génération du labyrinthe
-    bool isUsed; // Indique si la case a été utilisée pour former un mot
-    bool playerVisited; // Indique si la case a été visitée par le joueur
-    std::vector<Node*> neighbors; // Liste des voisins accessibles
-
-    Node() : letter('\0'), isExit(false), isBlocked(false), isSpecial(false), visited(false), isUsed(false), playerVisited(false) {}
-};
-
-// Classe pour représenter le graphe
-class Graph {
-public:
-    std::vector<std::vector<Node>> grid; // Grille de nœuds
-    int rows, cols;
-
-    Graph(int r, int c) : rows(r), cols(c), grid(r, std::vector<Node>(c)) {
-        // Initialiser les coordonnées de chaque nœud
-        for (int i = 0; i < rows; ++i) {
-            for (int j = 0; j < cols; ++j) {
-                grid[i][j].x = i;
-                grid[i][j].y = j;
-            }
-        }
-    }
-
-    // Ajouter une arête entre deux nœuds
-    void addEdge(Node& a, Node& b) {
-        a.neighbors.push_back(&b);
-        b.neighbors.push_back(&a);
-    }
-
-    // Trouver le nœud correspondant à une position
-    Node* getNode(int x, int y) {
-        if (x >= 0 && x < rows && y >= 0 && y < cols) {
-            return &grid[x][y];
-        }
-        return nullptr;
-    }
-};
-
-// Classe pour représenter le labyrinthe
-class Maze {
-public:
-    Graph graph;
-    sf::Vector2i entry, exit;
-
-    Maze(int r, int c) : graph(r, c) {
-        generateMaze();
-        placeLetters("dictionary.txt");
-        placeExit();
-        placeBlockedCells();
-        placeSpecialCells();
-    }
-
-    // Générer le labyrinthe avec l'algorithme DFS
-    void generateMaze() {
-        std::stack<Node*> stack;
-        Node* current = graph.getNode(0, 0);
-        current->visited = true;
-        stack.push(current);
-
-        while (!stack.empty()) {
-            current = stack.top();
-            std::vector<Node*> neighbors = getUnvisitedNeighbors(current);
-            if (!neighbors.empty()) {
-                Node* next = neighbors[rand() % neighbors.size()];
-                graph.addEdge(*current, *next);
-                next->visited = true;
-                stack.push(next);
-            }
-            else {
-                stack.pop();
-            }
-        }
-    }
-
-    // Obtenir les voisins non visités
-    std::vector<Node*> getUnvisitedNeighbors(Node* node) {
-        std::vector<Node*> neighbors;
-        int dx[] = { -1, 1, 0, 0 };
-        int dy[] = { 0, 0, -1, 1 };
-        for (int i = 0; i < 4; ++i) {
-            int nx = node->x + dx[i];
-            int ny = node->y + dy[i];
-            Node* neighbor = graph.getNode(nx, ny);
-            if (neighbor && !neighbor->visited && !neighbor->isBlocked) {
-                neighbors.push_back(neighbor);
-            }
-        }
-        return neighbors;
-    }
-
-    // Placer des lettres aléatoires dans les cellules
-    void placeLetters(const std::string& filename) {
-        std::ifstream file(filename);
-        if (!file.is_open()) {
-            std::cerr << "Erreur: Impossible d'ouvrir le fichier " << filename << std::endl;
-            return;
-        }
-
-        std::string word;
-        std::string allLetters;
-
-        // Lire tous les mots du fichier et extraire les lettres
-        while (file >> word) {
-            for (char letter : word) {
-                if (isalpha(letter)) {
-                    allLetters += toupper(letter);
-                }
-            }
-        }
-
-        file.close();
-
-        // Placer les lettres dans la grille
-        for (int i = 0; i < graph.rows; ++i) {
-            for (int j = 0; j < graph.cols; ++j) {
-                if (!allLetters.empty() && !graph.grid[i][j].isBlocked) {
-                    graph.grid[i][j].letter = allLetters[rand() % allLetters.size()];
-                }
-                else {
-                    graph.grid[i][j].letter = 'A'; // Valeur par défaut si le fichier est vide
-                }
-            }
-        }
-    }
-
-    // Placer la case d'arrivée (badge)
-    void placeExit() {
-        exit = sf::Vector2i(graph.rows - 1, graph.cols - 1);
-        graph.grid[exit.x][exit.y].isExit = true;
-    }
-
-    // Placer des cases bloquées (limité à 4)
-    void placeBlockedCells() {
-        int numBlocked = 4; // Limité à 4 cases bloquées
-        int placed = 0;
-        while (placed < numBlocked) {
-            int x = rand() % graph.rows;
-            int y = rand() % graph.cols;
-            if (!graph.grid[x][y].isExit && !graph.grid[x][y].isSpecial && !graph.grid[x][y].isBlocked) {
-                graph.grid[x][y].isBlocked = true;
-                placed++;
-            }
-        }
-    }
-
-    // Placer des cases spéciales
-    void placeSpecialCells() {
-        int numSpecial = (graph.rows * graph.cols) / 20; // 5% des cases sont spéciales
-        for (int i = 0; i < numSpecial; ++i) {
-            int x = rand() % graph.rows;
-            int y = rand() % graph.cols;
-            if (!graph.grid[x][y].isExit && !graph.grid[x][y].isBlocked) {
-                graph.grid[x][y].isSpecial = true;
-                // Assurer que la case spéciale est connectée à ses quatre voisins
-                connectSpecialCell(x, y);
-            }
-        }
-    }
-
-    // Connecter une case spéciale à ses quatre voisins
-    void connectSpecialCell(int x, int y) {
-        int dx[] = { -1, 1, 0, 0 };
-        int dy[] = { 0, 0, -1, 1 };
-        for (int i = 0; i < 4; ++i) {
-            int nx = x + dx[i];
-            int ny = y + dy[i];
-            Node* neighbor = graph.getNode(nx, ny);
-            if (neighbor && !neighbor->isBlocked) {
-                graph.addEdge(graph.grid[x][y], *neighbor);
-            }
-        }
-    }
-
-    // Placer la case de départ
-    void placeEntry(int x, int y) {
-        entry = sf::Vector2i(x, y);
-    }
-
-    // Vérifier si un chemin est ouvert entre deux nœuds
-    bool isPathClear(Node* a, Node* b) {
-        for (Node* neighbor : a->neighbors) {
-            if (neighbor == b) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Trouver le chemin le plus court avec BFS
-    std::vector<Node*> findShortestPath(Node* start, Node* end) {
-        std::queue<Node*> queue;
-        std::unordered_map<Node*, bool> visited;
-        std::unordered_map<Node*, Node*> parent;
-
-        queue.push(start);
-        visited[start] = true;
-
-        while (!queue.empty()) {
-            Node* current = queue.front();
-            queue.pop();
-
-            if (current == end) {
-                // Reconstruire le chemin
-                std::vector<Node*> path;
-                for (Node* at = end; at != start; at = parent[at]) {
-                    path.push_back(at);
-                }
-                path.push_back(start);
-                std::reverse(path.begin(), path.end());
-                return path;
-            }
-
-            // Explorer les voisins
-            for (Node* neighbor : current->neighbors) {
-                if (!visited[neighbor] && !neighbor->isBlocked) { // Ignorer les cases bloquées
-                    queue.push(neighbor);
-                    visited[neighbor] = true;
-                    parent[neighbor] = current;
-                }
-            }
-        }
-
-        return {}; // Aucun chemin trouvé
-    }
-};
+#include <sstream>
 
 // Classe pour représenter le joueur (élève)
 class Player {
 public:
     Node* position;
-    std::string collectedLetters;
+    std::vector<char> collectedLetters; // Liste des lettres collectées
     std::vector<std::string> validWords;
-    std::vector<Node*> pathTaken; // Chemin pris par le joueur
+    std::vector<Node*> pathTaken;
     sf::Clock moveClock;
 
     Player() : position(nullptr) {}
 
-    // Déplacer le joueur
-    void move(Node* newPos, Maze& maze) {
-        if (maze.isPathClear(position, newPos) && !newPos->isUsed && !newPos->isBlocked) {
-            position->playerVisited = true; // Marquer l'ancienne position comme visitée
+    void move(Node* newPos, Maze& maze, const std::unordered_set<std::string>& dictionary) {
+        if (newPos && !newPos->isUsed && !newPos->isBlocked) {
+            position->playerVisited = true;
             position = newPos;
             pathTaken.push_back(newPos);
 
-            // Ajouter la lettre ou un espace si c'est une case spéciale
             if (newPos->isSpecial) {
-                collectedLetters += ' '; // Ajouter un espace
-                applySpecialEffect(newPos); // Appliquer l'effet spécial
+                applySpecialEffect(newPos);
             }
             else {
-                collectedLetters += newPos->letter; // Ajouter la lettre
+                collectedLetters.push_back(newPos->letter); // Ajouter la lettre à la liste
+                checkForValidWords(dictionary);
             }
         }
     }
 
-    // Appliquer les effets des cases spéciales
-    void applySpecialEffect(Node* node) {
-        std::cout << "Case spéciale ! Bonus de 10 points !" << std::endl;
-        // Ajouter 10 points au score
-        // (Le score sera mis à jour dans la classe Game)
+    std::string getCollectedLetters() const {
+        return std::string(collectedLetters.begin(), collectedLetters.end());
     }
 
-    // Dessiner le joueur
-    void draw(sf::RenderWindow& window, float cellSize, const sf::Texture& playerTexture) {
+    void checkForValidWords(const std::unordered_set<std::string>& dictionary) {
+        std::string currentLetters(collectedLetters.begin(), collectedLetters.end());
+        if (currentLetters.length() >= 2) {
+            for (size_t i = 0; i < currentLetters.length(); ++i) {
+                for (size_t j = i + 2; j <= currentLetters.length(); ++j) {
+                    std::string substring = currentLetters.substr(i, j - i);
+                    if (dictionary.find(substring) != dictionary.end()) {
+                        if (std::find(validWords.begin(), validWords.end(), substring) == validWords.end()) {
+                            validWords.push_back(substring);
+                            std::cout << "Mot valide trouvé : " << substring << std::endl;
+                            for (size_t k = i; k < j; ++k) {
+                                if (k < pathTaken.size()) {
+                                    pathTaken[k]->isUsed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void applySpecialEffect(Node* node) {
+        std::cout << "Case spéciale ! Bonus de 5 points !" << std::endl;
+    }
+
+    const std::vector<std::string>& getValidWords() const {
+        return validWords;
+    }
+
+    void draw(sf::RenderWindow& window, float cellSize, const sf::Texture& playerTexture, float startX, float startY) {
         if (position) {
             sf::RectangleShape playerShape(sf::Vector2f(cellSize, cellSize));
-            playerShape.setPosition(position->y * cellSize, position->x * cellSize);
+            playerShape.setPosition(startX + position->y * cellSize, startY + position->x * cellSize);
             playerShape.setTexture(&playerTexture);
             window.draw(playerShape);
         }
+    }
+};
+
+// Classe pour gérer l'affichage des résultats
+class ResultsScreen {
+public:
+    sf::Font font;
+    sf::Text victoryText;
+    sf::Text collectedLettersText;
+    sf::Text validWordsText;
+    sf::Text scoreText;
+    sf::Text timeText;
+    sf::Texture backgroundTexture;
+    sf::Sprite backgroundSprite;
+    sf::Text usernameText;
+
+    ResultsScreen() {
+        if (!font.loadFromFile("Roboto-Bold.ttf")) {
+            std::cerr << "Erreur: Impossible de charger la police Roboto-Bold.ttf" << std::endl;
+        }
+
+        // Initialiser les textes
+        victoryText.setFont(font);
+        victoryText.setCharacterSize(60);
+        victoryText.setFillColor(sf::Color::Red);
+        victoryText.setStyle(sf::Text::Bold);
+        victoryText.setPosition(400, 10);
+
+        collectedLettersText.setFont(font);
+        collectedLettersText.setCharacterSize(24);
+        collectedLettersText.setFillColor(sf::Color::Black);
+        collectedLettersText.setPosition(50, 100);
+
+        validWordsText.setFont(font);
+        validWordsText.setCharacterSize(24);
+        validWordsText.setFillColor(sf::Color::Black);
+        validWordsText.setPosition(50, 150);
+
+        scoreText.setFont(font);
+        scoreText.setCharacterSize(24);
+        scoreText.setFillColor(sf::Color::Black);
+        scoreText.setPosition(50, 200);
+
+        timeText.setFont(font);
+        timeText.setCharacterSize(24);
+        timeText.setFillColor(sf::Color::Black);
+        timeText.setPosition(50, 250);
+
+        usernameText.setFont(font);
+        usernameText.setCharacterSize(24);
+        usernameText.setFillColor(sf::Color::Black);
+        usernameText.setPosition(50, 50);
+
+        // Charger l'arrière-plan (si nécessaire)
+        if (!backgroundTexture.loadFromFile("victory_background.png")) {
+            std::cerr << "Erreur: Impossible de charger la texture de l'arrière-plan (victory_background.png)" << std::endl;
+        }
+        backgroundSprite.setTexture(backgroundTexture);
+    }
+
+    void setUsername(const std::string& username) {
+        usernameText.setString("Nom d'utilisateur: " + username);
+    }
+
+    void setResults(const std::string& collectedLetters, const std::vector<std::string>& validWords, int score, int timeElapsed, bool isVictory) {
+        collectedLettersText.setString("Lettres collectees: " + collectedLetters);
+
+        // Afficher les mots valides trouvés
+        std::string validWordsStr = "Mots valides trouves: ";
+        for (const std::string& word : validWords) {
+            validWordsStr += word + " ";
+        }
+        validWordsText.setString(validWordsStr);
+
+        scoreText.setString("Score: " + std::to_string(score));
+
+        timeText.setString("Temps ecoule: " + std::to_string(timeElapsed) + " secondes");
+
+        // Changer le message en fonction de la victoire ou de la défaite
+        if (isVictory) {
+            victoryText.setString("Victoire !");
+            victoryText.setFillColor(sf::Color::Green);
+        }
+        else {
+            victoryText.setString("Defaite !");
+            victoryText.setFillColor(sf::Color::Red);
+        }
+
+        // Afficher les résultats dans le terminal
+        std::cout << "Lettres collectees: " << collectedLetters << std::endl;
+        std::cout << "Mots valides trouves: ";
+        for (const std::string& word : validWords) {
+            std::cout << word << " ";
+        }
+        std::cout << std::endl;
+        std::cout << "Score: " << score << std::endl;
+        std::cout << "Temps ecoule: " << timeElapsed << " secondes" << std::endl;
+        std::cout << (isVictory ? "Victoire !" : "Defaite !") << std::endl;
+    }
+
+    void draw(sf::RenderWindow& window) {
+        window.clear(sf::Color::White);
+
+        // Dessiner l'arrière-plan (si nécessaire)
+        window.draw(backgroundSprite);
+
+        // Dessiner les textes avec des bordures pour améliorer la visibilité
+        sf::RectangleShape textBackground(sf::Vector2f(700, 400));
+        textBackground.setPosition(50, 50);
+        textBackground.setFillColor(sf::Color(255, 255, 255, 200)); // Fond semi-transparent
+        window.draw(textBackground);
+
+        // Dessiner les textes
+        usernameText.setFillColor(sf::Color::Black);
+        usernameText.setPosition(100, 60);
+        window.draw(usernameText);
+
+        victoryText.setFillColor(sf::Color::Black);
+        victoryText.setPosition(100, 60);
+        window.draw(victoryText);
+
+        collectedLettersText.setFillColor(sf::Color::Black);
+        collectedLettersText.setPosition(100, 120);
+        window.draw(collectedLettersText);
+
+        validWordsText.setFillColor(sf::Color::Black);
+        validWordsText.setPosition(100, 180);
+        window.draw(validWordsText);
+
+        scoreText.setFillColor(sf::Color::Black);
+        scoreText.setPosition(100, 240);
+        window.draw(scoreText);
+
+        timeText.setFillColor(sf::Color::Black);
+        timeText.setPosition(100, 300);
+        window.draw(timeText);
+
+        window.display();
     }
 };
 
@@ -296,36 +225,49 @@ public:
     Maze maze;
     Player player;
     sf::Font font;
+    sf::Text timeText;
     sf::Text collectedLettersText;
     sf::Text scoreText;
-    sf::Text validWordsText;
-    sf::Text timeText;
-    sf::Text victoryText;
-    sf::Text defeatText;
-    sf::Texture wallTexture, playerTexture, badgeTexture, blockedTexture, specialTexture;
+    sf::Texture wallTexture, playerTexture, badgeTexture, blockedTexture, specialTexture, backgroundTexture;
+    sf::Sprite backgroundSprite;
     std::unordered_set<std::string> dictionary;
     int score;
-    int attempts; // Nombre de tentatives
-    sf::Clock gameClock; // Chronomètre pour mesurer le temps écoulé
-    bool gameWon; // Indique si le joueur a gagné
-    bool gameLost; // Indique si le joueur a perdu
-    std::vector<Node*> shortestPath; // Chemin le plus court
-    int difficulty; // Niveau de difficulté
+    int attempts;
+    sf::Clock gameClock;
+    bool gameWon;
+    bool gameLost;
+    std::vector<Node*> shortestPath;
+    int difficulty;
+    ResultsScreen resultsScreen;
+    bool showResults;
+    int timeLimit;
+    sf::Clock limitClock;
+    int estimatedTime;
 
-    Game(int rows, int cols, int diff) : maze(rows, cols), score(0), gameWon(false), gameLost(false), difficulty(diff) {
-        // Initialiser le nombre de tentatives en fonction de la difficulté
+    Game(int rows, int cols, int diff, int timeLimit = 0, const std::string& username = "", int startX = 0, int startY = 0)
+        : maze(rows, cols), score(0), gameWon(false), gameLost(false), difficulty(diff), showResults(false), timeLimit(timeLimit) {
+        player.position = maze.graph.getNode(startX, startY);
+        maze.placeEntry(startX, startY);
+        resultsScreen.setUsername(username);
+        shortestPath = maze.findShortestPath(player.position, maze.graph.getNode(maze.exit.x, maze.exit.y));
+        limitClock.restart();
+
         switch (difficulty) {
         case 1:
-            attempts = 2; // Facile : 2 tentatives
+            attempts = 2;
+            estimatedTime = 10;
             break;
         case 2:
-            attempts = 3; // Moyen : 3 tentatives
+            attempts = 3;
+            estimatedTime = 20;
             break;
         case 3:
-            attempts = 5; // Difficile : 5 tentatives
+            attempts = 5;
+            estimatedTime = 30;
             break;
         default:
-            attempts = 3; // Par défaut : 3 tentatives
+            attempts = 3;
+            estimatedTime = 20;
             break;
         }
 
@@ -339,7 +281,7 @@ public:
             std::cerr << "Erreur: Impossible de charger la texture du joueur (player.png)" << std::endl;
         }
         if (!badgeTexture.loadFromFile("bag.png")) {
-            std::cerr << "Erreur: Impossible de charger la texture du badge (badge.png)" << std::endl;
+            std::cerr << "Erreur: Impossible de charger la texture du badge (bag.png)" << std::endl;
         }
         if (!blockedTexture.loadFromFile("blocked.png")) {
             std::cerr << "Erreur: Impossible de charger la texture des cases bloquées (blocked.png)" << std::endl;
@@ -347,91 +289,77 @@ public:
         if (!specialTexture.loadFromFile("special.png")) {
             std::cerr << "Erreur: Impossible de charger la texture des cases spéciales (special.png)" << std::endl;
         }
+        if (!backgroundTexture.loadFromFile("school_background.jpg")) {
+            std::cerr << "Erreur: Impossible de charger la texture de l'arrière-plan (school_background.jpg)" << std::endl;
+        }
+        backgroundSprite.setTexture(backgroundTexture);
+
         collectedLettersText.setFont(font);
         collectedLettersText.setCharacterSize(24);
         collectedLettersText.setFillColor(sf::Color::Black);
-        collectedLettersText.setPosition(10, 550);
-
-        scoreText.setFont(font);
-        scoreText.setCharacterSize(24);
-        scoreText.setFillColor(sf::Color::Black);
-        scoreText.setPosition(10, 500);
-        scoreText.setString("Score: 0");
-
-        validWordsText.setFont(font);
-        validWordsText.setCharacterSize(20);
-        validWordsText.setFillColor(sf::Color::Black);
-        validWordsText.setPosition(400, 500);
-        validWordsText.setString("Mots valides: ");
+        collectedLettersText.setPosition(10, 10);
 
         timeText.setFont(font);
         timeText.setCharacterSize(24);
         timeText.setFillColor(sf::Color::Black);
-        timeText.setPosition(10, 450);
+        timeText.setPosition(10, 10);
 
-        victoryText.setFont(font);
-        victoryText.setCharacterSize(40);
-        victoryText.setFillColor(sf::Color::Green);
-        victoryText.setPosition(200, 200);
-        victoryText.setString("Victoire !");
-
-        defeatText.setFont(font);
-        defeatText.setCharacterSize(40);
-        defeatText.setFillColor(sf::Color::Red);
-        defeatText.setPosition(200, 200);
-        defeatText.setString("Défaite !");
+        scoreText.setFont(font);
+        scoreText.setCharacterSize(24);
+        scoreText.setFillColor(sf::Color::Black);
+        scoreText.setPosition(10, 40);
 
         loadDictionary("dictionary.txt");
 
-        // Demander à l'utilisateur de choisir la case de départ ou de la générer aléatoirement
-        std::cout << "Voulez-vous choisir la case de départ ? (o/n): ";
-        char choice;
-        std::cin >> choice;
-
-        if (choice == 'o' || choice == 'O') {
-            int startX, startY;
-            std::cout << "Entrez les coordonnées de la case de départ (x y): ";
-            std::cin >> startX >> startY;
-            maze.placeEntry(startX, startY);
-        }
-        else {
-            // Générer une case de départ aléatoire
-            int startX = rand() % maze.graph.rows;
-            int startY = rand() % maze.graph.cols;
-            maze.placeEntry(startX, startY);
-        }
-
-        // Initialiser la position du joueur
         player.position = maze.graph.getNode(maze.entry.x, maze.entry.y);
-
-        // Trouver le chemin le plus court
         shortestPath = maze.findShortestPath(player.position, maze.graph.getNode(maze.exit.x, maze.exit.y));
+        limitClock.restart();
     }
 
-    void loadDictionary(const std::string& filename) {
-        std::ifstream file(filename);
-        if (!file) {
-            std::cerr << "Erreur: Impossible d'ouvrir le fichier " << filename << std::endl;
-            return;
-        }
-        std::string word;
-        while (std::getline(file, word)) {
-            std::transform(word.begin(), word.end(), word.begin(), ::toupper); // Convertir en majuscules
-            dictionary.insert(word);
+    void run() {
+        sf::RenderWindow window(sf::VideoMode(1000, 100 + maze.graph.rows * 40), "Labyrinthe Scolaire");
+
+        while (window.isOpen()) {
+            sf::Event event;
+            while (window.pollEvent(event)) {
+                if (event.type == sf::Event::Closed)
+                    window.close();
+
+                if (event.type == sf::Event::KeyPressed && !gameWon && !gameLost && !showResults) {
+                    if (event.key.code == sf::Keyboard::Up) {
+                        Node* newPos = maze.graph.getNode(player.position->x - 1, player.position->y);
+                        if (newPos && maze.isPathClear(player.position, newPos)) player.move(newPos, maze, dictionary);
+                    }
+                    else if (event.key.code == sf::Keyboard::Down) {
+                        Node* newPos = maze.graph.getNode(player.position->x + 1, player.position->y);
+                        if (newPos && maze.isPathClear(player.position, newPos)) player.move(newPos, maze, dictionary);
+                    }
+                    else if (event.key.code == sf::Keyboard::Left) {
+                        Node* newPos = maze.graph.getNode(player.position->x, player.position->y - 1);
+                        if (newPos && maze.isPathClear(player.position, newPos)) player.move(newPos, maze, dictionary);
+                    }
+                    else if (event.key.code == sf::Keyboard::Right) {
+                        Node* newPos = maze.graph.getNode(player.position->x, player.position->y + 1);
+                        if (newPos && maze.isPathClear(player.position, newPos)) player.move(newPos, maze, dictionary);
+                    }
+                    else if (event.key.code == sf::Keyboard::R) {
+                        resetLevel();
+                    }
+                }
+            }
+
+            update();
+            render(window);
         }
     }
 
     void resetLevel() {
-        // Réinitialiser le labyrinthe
         maze = Maze(maze.graph.rows, maze.graph.cols);
-
-        // Réinitialiser la position du joueur
         player.position = maze.graph.getNode(maze.entry.x, maze.entry.y);
         player.collectedLetters.clear();
         player.pathTaken.clear();
         player.validWords.clear();
 
-        // Réinitialiser les cases utilisées
         for (int i = 0; i < maze.graph.rows; ++i) {
             for (int j = 0; j < maze.graph.cols; ++j) {
                 maze.graph.grid[i][j].isUsed = false;
@@ -439,17 +367,11 @@ public:
             }
         }
 
-        // Réinitialiser le chemin le plus court
         shortestPath = maze.findShortestPath(player.position, maze.graph.getNode(maze.exit.x, maze.exit.y));
-
-        // Réinitialiser le chronomètre
         gameClock.restart();
-
-        // Réinitialiser les états de victoire et de défaite
         gameWon = false;
         gameLost = false;
 
-        // Réinitialiser les tentatives (selon la difficulté)
         switch (difficulty) {
         case 1:
             attempts = 2;
@@ -464,318 +386,288 @@ public:
             attempts = 3;
             break;
         }
-
-        // Mettre à jour l'affichage du score et des mots valides
-        scoreText.setString("Score: " + std::to_string(score));
-        validWordsText.setString("Mots valides: ");
     }
 
-    void run() {
-        sf::RenderWindow window(sf::VideoMode(800, 600), "Labyrinthe Scolaire");
-
-        while (window.isOpen()) {
-            sf::Event event;
-            while (window.pollEvent(event)) {
-                if (event.type == sf::Event::Closed)
-                    window.close();
-
-                // Gestion des touches pour déplacer le joueur
-                if (event.type == sf::Event::KeyPressed && !gameWon && !gameLost) {
-                    if (event.key.code == sf::Keyboard::Up) {
-                        Node* newPos = maze.graph.getNode(player.position->x - 1, player.position->y);
-                        if (newPos) player.move(newPos, maze);
-                    }
-                    else if (event.key.code == sf::Keyboard::Down) {
-                        Node* newPos = maze.graph.getNode(player.position->x + 1, player.position->y);
-                        if (newPos) player.move(newPos, maze);
-                    }
-                    else if (event.key.code == sf::Keyboard::Left) {
-                        Node* newPos = maze.graph.getNode(player.position->x, player.position->y - 1);
-                        if (newPos) player.move(newPos, maze);
-                    }
-                    else if (event.key.code == sf::Keyboard::Right) {
-                        Node* newPos = maze.graph.getNode(player.position->x, player.position->y + 1);
-                        if (newPos) player.move(newPos, maze);
-                    }
-                    else if (event.key.code == sf::Keyboard::R) {
-                        resetLevel(); // Réinitialiser le niveau avec la touche "R"
-                    }
-                }
-            }
-
-            update();
-            render(window);
+    void loadDictionary(const std::string& filename) {
+        std::ifstream file(filename);
+        if (!file) {
+            std::cerr << "Erreur: Impossible d'ouvrir le fichier " << filename << std::endl;
+            return;
+        }
+        std::string word;
+        while (std::getline(file, word)) {
+            std::transform(word.begin(), word.end(), word.begin(), ::toupper);
+            dictionary.insert(word);
         }
     }
 
     void update() {
-        if (!gameWon && !gameLost) {
-            // Vérifier si le joueur a atteint l'arrivée
+        if (!gameWon && !gameLost && !showResults) {
             if (player.position->isExit) {
                 gameWon = true;
-                std::cout << "Félicitations ! Vous avez atteint l'arrivée en "
-                    << gameClock.getElapsedTime().asSeconds() << " secondes." << std::endl;
+                showResults = true;
+                calculateFinalScore();
 
-                // Comparer le chemin pris avec le chemin le plus court
-                if (player.pathTaken == shortestPath) {
-                    score += 50; // Bonus pour avoir trouvé le chemin le plus court
-                }
-                else {
-                    int extraSteps = player.pathTaken.size() - shortestPath.size();
-                    score += std::max(0, 50 - (extraSteps * 5)); // Réduire le bonus en fonction des étapes supplémentaires
-                }
-                scoreText.setString("Score: " + std::to_string(score));
+                std::cout << "L'ensemble des lettres collectees : " << player.getCollectedLetters() << std::endl;
+
+                resultsScreen.setResults(
+                    player.getCollectedLetters(),
+                    player.validWords,
+                    score,
+                    static_cast<int>(gameClock.getElapsedTime().asSeconds()),
+                    true
+                );
             }
 
-            // Vérifier si un mot a été formé
-            if (player.collectedLetters.size() >= 2) { // Un mot doit avoir au moins 2 lettres
-                std::string currentWord = player.collectedLetters;
+            if (timeLimit > 0 && limitClock.getElapsedTime().asSeconds() >= timeLimit) {
+                gameLost = true;
+                showResults = true;
 
-                // Vérifier si le mot est dans le dictionnaire
-                if (dictionary.find(currentWord) != dictionary.end()) {
-                    // Le mot est valide, libérer les cases utilisées
-                    for (Node* node : player.pathTaken) {
-                        node->isUsed = false; // Libérer la case pour qu'elle puisse être réutilisée
+                std::cout << "L'ensemble des lettres collectees : " << player.getCollectedLetters() << std::endl;
+
+                resultsScreen.setResults(
+                    player.getCollectedLetters(),
+                    player.validWords,
+                    score,
+                    static_cast<int>(gameClock.getElapsedTime().asSeconds()),
+                    false
+                );
+            }
+
+            if (player.collectedLetters.size() >= 2) {
+                std::vector<std::string> newValidWords = findValidWords(player.getCollectedLetters());
+
+                for (const std::string& word : newValidWords) {
+                    if (std::find(player.validWords.begin(), player.validWords.end(), word) == player.validWords.end()) {
+                        player.validWords.push_back(word);
+                        score += 50;
+                        std::cout << "Mot valide trouvé : " << word << std::endl;
+                        std::cout << "Nouveau score : " << score << std::endl;
                     }
-
-                    // Ajouter le mot à la liste des mots valides
-                    player.validWords.push_back(currentWord);
-
-                    // Mettre à jour le score
-                    updateScore();
-
-                    // Réinitialiser les lettres collectées et le chemin pris
-                    player.collectedLetters.clear();
-                    player.pathTaken.clear();
-
-                    // Mettre à jour l'affichage des mots valides
-                    std::string validWordsStr = "Mots valides: ";
-                    for (const std::string& word : player.validWords) {
-                        validWordsStr += word + " ";
-                    }
-                    validWordsText.setString(validWordsStr);
                 }
+
+                player.collectedLetters.clear();
+                player.pathTaken.clear();
             }
 
-            // Vérifier si le joueur est sur une case spéciale et ajouter 10 points
-            if (player.position->isSpecial && !player.position->playerVisited) {
-                score += 10; // Ajouter 10 points pour une case spéciale
-                scoreText.setString("Score: " + std::to_string(score));
-                player.position->playerVisited = true; // Marquer la case comme visitée pour éviter de compter plusieurs fois
-            }
-
-            // Vérifier si le joueur est bloqué (plus de mouvements possibles)
-            if (isPlayerStuck()) {
-                attempts--; // Réduire le nombre de tentatives
-                if (attempts <= 0) {
-                    gameLost = true; // Le joueur a perdu
-                    std::cout << "Vous avez épuisé toutes vos tentatives. Défaite !" << std::endl;
-                }
-                else {
-                    resetPlayerPosition(); // Réinitialiser la position du joueur pour une nouvelle tentative
-                    std::cout << "Tentative restante : " << attempts << std::endl;
-                }
+            if (player.position->isSpecial) {
+                score += 5;
+                std::cout << "Case spéciale traversée ! +5 points. Score actuel : " << score << std::endl;
+                player.position->isSpecial = false;
             }
         }
     }
 
-    // Vérifier si le joueur est bloqué (plus de mouvements possibles)
-    bool isPlayerStuck() {
-        int dx[] = { -1, 1, 0, 0 };
-        int dy[] = { 0, 0, -1, 1 };
-        for (int i = 0; i < 4; ++i) {
-            int nx = player.position->x + dx[i];
-            int ny = player.position->y + dy[i];
-            Node* neighbor = maze.graph.getNode(nx, ny);
-            if (neighbor && !neighbor->isBlocked && !neighbor->isUsed) {
-                return false; // Il y a encore des mouvements possibles
-            }
+    void calculateFinalScore() {
+        // Ajouter le bonus de difficulté
+        switch (difficulty) {
+        case 1:
+            score += 0; // Facile : +0 points
+            break;
+        case 2:
+            score += 50; // Moyen : +50 points
+            break;
+        case 3:
+            score += 100; // Difficile : +100 points
+            break;
+        default:
+            break;
         }
-        return true; // Le joueur est bloqué
-    }
 
-    // Réinitialiser la position du joueur pour une nouvelle tentative
-    void resetPlayerPosition() {
-        player.position = maze.graph.getNode(maze.entry.x, maze.entry.y);
-        player.collectedLetters.clear();
-        player.pathTaken.clear();
-        for (int i = 0; i < maze.graph.rows; ++i) {
-            for (int j = 0; j < maze.graph.cols; ++j) {
-                maze.graph.grid[i][j].isUsed = false; // Réinitialiser toutes les cases utilisées          
+        // Ajouter des points pour les lettres collectées dans ou hors du chemin le plus court
+        for (Node* node : player.pathTaken) {
+            if (std::find(shortestPath.begin(), shortestPath.end(), node) != shortestPath.end()) {
+                score += 15; // Lettre collectée dans le chemin le plus court
             }
-        }
-    }
-
-    void updateScore() {
-        int wordScore = 0;
-        for (const std::string& word : player.validWords) {
-            wordScore += word.length(); // 1 point par lettre
-            // Bonus pour les mots de plus de 5 lettres
-            if (word.length() > 5) {
-                wordScore += 10; // Bonus de 10 points pour les mots longs
+            else {
+                score += 5; // Lettre collectée hors du chemin le plus court
             }
         }
 
-        // Bonus pour le chemin le plus court
-        if (player.pathTaken == shortestPath) {
-            wordScore += 50; // Bonus de 50 points pour le chemin le plus court
+        // Vérifier si le joueur a atteint la case d'arrivée dans le temps estimé
+        if (gameClock.getElapsedTime().asSeconds() <= estimatedTime) {
+            score += 50; // Ajouter 50 points si le joueur a terminé dans le temps estimé
         }
-
-        // Pénalité de temps
-        int timePenalty = static_cast<int>(gameClock.getElapsedTime().asSeconds());
-        score = std::max(0, wordScore - timePenalty); // Le score ne peut pas être négatif
-        scoreText.setString("Score: " + std::to_string(score));
     }
 
     void render(sf::RenderWindow& window) {
-        window.clear(sf::Color::White);
+        if (showResults) {
+            resultsScreen.draw(window);
+        }
+        else {
+            window.clear(sf::Color::White);
 
-        // Dessiner le labyrinthe
-        float cellSize = 40.f;
-        for (int i = 0; i < maze.graph.rows; ++i) {
-            for (int j = 0; j < maze.graph.cols; ++j) {
-                Node* node = maze.graph.getNode(i, j);
-                if (node) {
-                    // Dessiner la cellule
-                    sf::RectangleShape cellShape(sf::Vector2f(cellSize, cellSize));
-                    cellShape.setPosition(j * cellSize, i * cellSize);
+            // Dessiner l'arrière-plan
+            window.draw(backgroundSprite);
 
-                    // Colorer la cellule en gris si elle a été visitée par le joueur
-                    if (node->playerVisited) {
-                        cellShape.setFillColor(sf::Color(200, 200, 200)); // Gris clair
-                    }
-                    else {
-                        cellShape.setFillColor(sf::Color::White);
-                    }
+            // Taille de la fenêtre
+            float windowWidth = window.getSize().x;
+            float windowHeight = window.getSize().y;
 
-                    cellShape.setOutlineThickness(1.f);
-                    cellShape.setOutlineColor(sf::Color::Black);
-                    window.draw(cellShape);
+            // Taille du labyrinthe
+            float mazeWidth = maze.graph.cols * 40.f;
+            float mazeHeight = maze.graph.rows * 40.f;
 
-                    // Dessiner les murs
-                    if (i > 0 && !maze.isPathClear(node, maze.graph.getNode(i - 1, j))) {
-                        sf::RectangleShape wallShape(sf::Vector2f(cellSize, 5));
-                        wallShape.setPosition(j * cellSize, i * cellSize);
-                        wallShape.setTexture(&wallTexture);
-                        window.draw(wallShape);
-                    }
-                    if (i < maze.graph.rows - 1 && !maze.isPathClear(node, maze.graph.getNode(i + 1, j))) {
-                        sf::RectangleShape wallShape(sf::Vector2f(cellSize, 5));
-                        wallShape.setPosition(j * cellSize, (i + 1) * cellSize);
-                        wallShape.setTexture(&wallTexture);
-                        window.draw(wallShape);
-                    }
-                    if (j > 0 && !maze.isPathClear(node, maze.graph.getNode(i, j - 1))) {
-                        sf::RectangleShape wallShape(sf::Vector2f(5, cellSize));
-                        wallShape.setPosition(j * cellSize, i * cellSize);
-                        wallShape.setTexture(&wallTexture);
-                        window.draw(wallShape);
-                    }
-                    if (j < maze.graph.cols - 1 && !maze.isPathClear(node, maze.graph.getNode(i, j + 1))) {
-                        sf::RectangleShape wallShape(sf::Vector2f(5, cellSize));
-                        wallShape.setPosition((j + 1) * cellSize, i * cellSize);
-                        wallShape.setTexture(&wallTexture);
-                        window.draw(wallShape);
-                    }
+            // Calculer la position de départ pour centrer le labyrinthe
+            float startX = (windowWidth - mazeWidth) / 2;
+            float startY = (windowHeight - mazeHeight) / 2;
 
-                    // Dessiner la lettre
-                    if (node->letter != '\0') {
-                        sf::Text letterText;
-                        letterText.setFont(font);
-                        letterText.setString(node->letter);
-                        letterText.setCharacterSize(24);
-                        letterText.setFillColor(sf::Color::Black);
-                        letterText.setPosition(j * cellSize + 15, i * cellSize + 10);
-                        window.draw(letterText);
-                    }
+            // Dessiner le labyrinthe
+            for (int i = 0; i < maze.graph.rows; ++i) {
+                for (int j = 0; j < maze.graph.cols; ++j) {
+                    Node* node = maze.graph.getNode(i, j);
+                    if (node) {
+                        // Dessiner la cellule
+                        sf::RectangleShape cellShape(sf::Vector2f(40.f, 40.f));
+                        cellShape.setPosition(startX + j * 40.f, startY + i * 40.f);
 
-                    // Dessiner le badge si c'est la case d'arrivée
-                    if (node->isExit) {
-                        sf::RectangleShape badgeShape(sf::Vector2f(cellSize, cellSize));
-                        badgeShape.setPosition(j * cellSize, i * cellSize);
-                        badgeShape.setTexture(&badgeTexture);
-                        window.draw(badgeShape);
-                    }
+                        // Colorer la case en rouge si elle fait partie d'un mot valide
+                        if (node->isUsed) {
+                            cellShape.setFillColor(sf::Color::Red); // Case en rouge
+                        }
+                        else if (node->playerVisited) {
+                            cellShape.setFillColor(sf::Color(200, 200, 200)); // Case visitée
+                        }
+                        else {
+                            cellShape.setFillColor(sf::Color::White); // Case normale
+                        }
 
-                    // Dessiner les cases bloquées
-                    if (node->isBlocked) {
-                        sf::RectangleShape blockedShape(sf::Vector2f(cellSize, cellSize));
-                        blockedShape.setPosition(j * cellSize, i * cellSize);
-                        blockedShape.setTexture(&blockedTexture);
-                        window.draw(blockedShape);
-                    }
+                        cellShape.setOutlineThickness(1.f);
+                        cellShape.setOutlineColor(sf::Color::Black);
+                        window.draw(cellShape);
 
-                    // Dessiner les cases spéciales
-                    if (node->isSpecial) {
-                        sf::RectangleShape specialShape(sf::Vector2f(cellSize, cellSize));
-                        specialShape.setPosition(j * cellSize, i * cellSize);
-                        specialShape.setTexture(&specialTexture);
-                        window.draw(specialShape);
+                        // Dessiner les murs
+                        if (i > 0 && !maze.isPathClear(node, maze.graph.getNode(i - 1, j))) {
+                            sf::RectangleShape wallShape(sf::Vector2f(40.f, 5));
+                            wallShape.setPosition(startX + j * 40.f, startY + i * 40.f);
+                            wallShape.setTexture(&wallTexture);
+                            window.draw(wallShape);
+                        }
+                        if (i < maze.graph.rows - 1 && !maze.isPathClear(node, maze.graph.getNode(i + 1, j))) {
+                            sf::RectangleShape wallShape(sf::Vector2f(40.f, 5));
+                            wallShape.setPosition(startX + j * 40.f, startY + (i + 1) * 40.f);
+                            wallShape.setTexture(&wallTexture);
+                            window.draw(wallShape);
+                        }
+                        if (j > 0 && !maze.isPathClear(node, maze.graph.getNode(i, j - 1))) {
+                            sf::RectangleShape wallShape(sf::Vector2f(5, 40.f));
+                            wallShape.setPosition(startX + j * 40.f, startY + i * 40.f);
+                            wallShape.setTexture(&wallTexture);
+                            window.draw(wallShape);
+                        }
+                        if (j < maze.graph.cols - 1 && !maze.isPathClear(node, maze.graph.getNode(i, j + 1))) {
+                            sf::RectangleShape wallShape(sf::Vector2f(5, 40.f));
+                            wallShape.setPosition(startX + (j + 1) * 40.f, startY + i * 40.f);
+                            wallShape.setTexture(&wallTexture);
+                            window.draw(wallShape);
+                        }
+
+                        // Dessiner la lettre
+                        if (node->letter != '\0') {
+                            sf::Text letterText;
+                            letterText.setFont(font);
+                            letterText.setString(node->letter);
+                            letterText.setCharacterSize(24);
+                            letterText.setFillColor(sf::Color::Black);
+                            letterText.setPosition(startX + j * 40.f + 15, startY + i * 40.f + 10);
+                            window.draw(letterText);
+                        }
+
+                        // Dessiner le badge si c'est la case d'arrivée
+                        if (node->isExit) {
+                            sf::RectangleShape badgeShape(sf::Vector2f(40.f, 40.f));
+                            badgeShape.setPosition(startX + j * 40.f, startY + i * 40.f);
+                            badgeShape.setTexture(&badgeTexture);
+                            window.draw(badgeShape);
+                        }
+
+                        // Dessiner les cases bloquées
+                        if (node->isBlocked) {
+                            sf::RectangleShape blockedShape(sf::Vector2f(40.f, 40.f));
+                            blockedShape.setPosition(startX + j * 40.f, startY + i * 40.f);
+                            blockedShape.setTexture(&blockedTexture);
+                            window.draw(blockedShape);
+                        }
+
+                        // Dessiner les cases spéciales
+                        if (node->isSpecial) {
+                            sf::RectangleShape specialShape(sf::Vector2f(40.f, 40.f));
+                            specialShape.setPosition(startX + j * 40.f, startY + i * 40.f);
+                            specialShape.setTexture(&specialTexture);
+                            window.draw(specialShape);
+                        }
                     }
                 }
             }
+
+            // Dessiner le joueur
+            player.draw(window, 40.f, playerTexture, startX, startY);
+
+            // Afficher uniquement le temps pendant le jeu
+            timeText.setString("Temps : " + std::to_string(static_cast<int>(gameClock.getElapsedTime().asSeconds())) + "s");
+            timeText.setPosition(10, 10);
+            window.draw(timeText);
+
+            // Afficher le score
+            scoreText.setString("Score: " + std::to_string(score));
+            scoreText.setPosition(startX, startY + maze.graph.rows * 40.f + 40);
+            window.draw(scoreText);
+
+            window.display();
         }
-
-        // Dessiner le joueur
-        player.draw(window, cellSize, playerTexture);
-
-        // Afficher le temps écoulé
-        timeText.setString("Temps: " + std::to_string(static_cast<int>(gameClock.getElapsedTime().asSeconds())) + "s");
-        window.draw(timeText);
-
-        // Afficher les lettres collectées
-        window.draw(collectedLettersText);
-
-        // Afficher le score
-        window.draw(scoreText);
-
-        // Afficher les mots valides
-        window.draw(validWordsText);
-
-        // Afficher le message de victoire ou de défaite
-        if (gameWon) {
-            window.draw(victoryText);
-        }
-        else if (gameLost) {
-            window.draw(defeatText);
-        }
-
-        window.display();
     }
 };
 
-// Fonction principale
 int main() {
     srand(static_cast<unsigned int>(time(0)));
 
-    // Définir la taille de la grille en fonction de la difficulté
-    int rows = 10; // Par défaut
-    int cols = 10; // Par défaut
+    sf::RenderWindow homeWindow(sf::VideoMode(800, 800), "Labyrinthe Scolaire - Accueil");
+    HomeScreen homeScreen;
 
-    // Exemple : ajuster la taille en fonction de la difficulté
-    std::cout << "Choisissez le niveau de difficulté (1: Facile, 2: Moyen, 3: Difficile): ";
-    int difficulty;
-    std::cin >> difficulty;
+    while (homeWindow.isOpen()) {
+        sf::Event event;
+        while (homeWindow.pollEvent(event)) {
+            if (event.type == sf::Event::Closed)
+                homeWindow.close();
 
-    switch (difficulty) {
-    case 1:
-        rows = 8;
-        cols = 13;
-        break;
-    case 2:
-        rows = 12;
-        cols = 17;
-        break;
-    case 3:
-        rows = 15;
-        cols = 20;
-        break;
-    default:
-        std::cerr << "Niveau de difficulté invalide. Utilisation de la taille par défaut." << std::endl;
-        break;
+            homeScreen.handleEvent(event);
+        }
+
+        homeScreen.draw(homeWindow);
+
+        if (homeScreen.startGame) {
+            homeWindow.close();
+
+            // Lancer le jeu avec les paramètres choisis
+            int rows = 0, cols = 0;
+            switch (homeScreen.selectedDifficulty) {
+            case 1:
+                rows = 8;
+                cols = 13;
+                break;
+            case 2:
+                rows = 12;
+                cols = 17;
+                break;
+            case 3:
+                rows = 15;
+                cols = 20;
+                break;
+            default:
+                std::cerr << "Niveau de difficulte invalide. Utilisation de la taille par defaut." << std::endl;
+                break;
+            }
+
+            // Passer le temps limite choisi au jeu
+            Game game(rows, cols, homeScreen.selectedDifficulty, homeScreen.timeLimit);
+            // Passer le nom d'utilisateur à ResultsScreen
+            game.resultsScreen.setUsername(homeScreen.usernameInputString);
+            // Passer les coordonnées de départ au labyrinthe
+            game.maze.placeEntry(homeScreen.startPosition.x, homeScreen.startPosition.y);
+
+            game.run();
+        }
     }
 
-    Game game(rows, cols, difficulty);
-    game.run();
     return 0;
 }
