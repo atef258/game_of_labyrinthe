@@ -367,13 +367,14 @@ struct Node {
     char letter; // Lettre dans la cellule
     bool isExit; // Indique si c'est la case d'arrivée
     bool isBlocked; // Indique si la case est bloquée
+    int specialBonus; // Bonus de la case spéciale
     bool isSpecial; // Indique si la case est spéciale
     bool visited; // Utilisé pour la génération du labyrinthe
     bool isUsed; // Indique si la case a été utilisée pour former un mot
     bool playerVisited; // Indique si la case a été visitée par le joueur
     std::vector<Node*> neighbors; // Liste des voisins accessibles
 
-    Node() : letter('\0'), isExit(false), isBlocked(false), isSpecial(false), visited(false), isUsed(false), playerVisited(false) {}
+    Node() : letter('\0'), isExit(false), isBlocked(false), isSpecial(false), specialBonus(false), visited(false), isUsed(false), playerVisited(false) {}
 };
 
 // Classe pour représenter le graphe
@@ -418,7 +419,7 @@ public:
         placeLetters("dictionary.txt");
         placeExit();
         placeBlockedCells();
-        placeSpecialCells();
+        placeSpecialCells(5);
     }
 
     // Générer le labyrinthe avec l'algorithme DFS
@@ -518,6 +519,19 @@ public:
         exit = sf::Vector2i(graph.rows - 1, graph.cols - 1);
         graph.grid[exit.x][exit.y].isExit = true;
     }
+    void placeBonusCells(int numBonusCells) {
+        int placed = 0;
+        while (placed < numBonusCells) {
+            int x = rand() % graph.rows;
+            int y = rand() % graph.cols;
+            Node* node = graph.getNode(x, y);
+
+            if (node && !node->isExit && !node->isBlocked && !node->isSpecial && !node->isSpecial) {
+                node->isSpecial = true;
+                placed++;
+            }
+        }
+    }
 
     // Placer des cases bloquées 
     void placeBlockedCells() {
@@ -547,17 +561,20 @@ public:
     }
 
     // Placer des cases spéciales dans les cases vides
-    void placeSpecialCells() {
-        for (int i = 0; i < graph.rows; ++i) {
-            for (int j = 0; j < graph.cols; ++j) {
-                if (!graph.grid[i][j].isExit && !graph.grid[i][j].isBlocked && graph.grid[i][j].letter == '\0') {
-                    graph.grid[i][j].isSpecial = true;
-                    connectSpecialCell(i, j);
-                }
+    void placeSpecialCells(int numSpecialCells) {
+        int placed = 0;
+        while (placed < numSpecialCells) {
+            int x = rand() % graph.rows;
+            int y = rand() % graph.cols;
+            Node* node = graph.getNode(x, y);
+
+            if (node && !node->isExit && !node->isBlocked && !node->isSpecial) {
+                node->isSpecial = true;
+                node->specialBonus = 5 + rand() % 10; // Bonus aléatoire entre 5 et 15 points
+                placed++;
             }
         }
     }
-
     // Connecter une case spéciale à ses quatre voisins
     void connectSpecialCell(int x, int y) {
         int dx[] = { -1, 1, 0, 0 };
@@ -689,49 +706,27 @@ public:
         }
     }
 
+    void applySpecialEffect(Node* node) {
+        std::cout << "Case spéciale traversée ! Bonus de " << node->specialBonus << " points !" << std::endl;
+        // Le bonus sera ajouté au score dans la classe Game
+    }
+
     // Vérifier si les lettres collectées forment un mot valide
     void checkForValidWords(const std::unordered_set<std::string>& dictionary) {
-        if (collectedLetters.length() >= 2) {
-            // Parcourir toutes les sous-chaînes possibles
-            for (size_t i = 0; i < collectedLetters.length(); ++i) {
-                for (size_t j = i + 2; j <= collectedLetters.length(); ++j) {
-                    std::string substring = collectedLetters.substr(i, j - i);
-                    if (dictionary.find(substring) != dictionary.end()) {
-                        // Si le mot est valide et n'a pas déjà été trouvé
-                        if (std::find(validWords.begin(), validWords.end(), substring) == validWords.end()) {
-                            validWords.push_back(substring); // Sauvegarder le mot valide
-                            std::cout << "Mot valide trouvé : " << substring << std::endl;
-
-                            // Marquer les cases utilisées dans ce mot
-                            for (size_t k = i; k < j; ++k) {
-                                if (k < pathTaken.size()) {
-                                    pathTaken[k]->isUsed = true; // Marquer la case comme utilisée dans un mot valide
-                                }
-                            }
-
-                            // Supprimer le mot trouvé de collectedLetters pour continuer l'analyse
-                            collectedLetters.erase(i, j - i);
-                            i = 0; // Réinitialiser l'index pour recommencer l'analyse
-                            j = i + 2; // Réinitialiser j
-                        }
-                    }
+        for (const std::string& word : dictionary) {
+            if (collectedLetters.find(word) != std::string::npos) {
+                // Si le mot est valide et n'a pas déjà été trouvé
+                if (std::find(validWords.begin(), validWords.end(), word) == validWords.end()) {
+                    validWords.push_back(word); // Sauvegarder le mot valide
+                    std::cout << "Mot valide trouvé : " << word << std::endl;
                 }
             }
         }
-    }
-
-
-    // Appliquer les effets des cases spéciales
-    void applySpecialEffect(Node* node) {
-        std::cout << "Case spéciale ! Bonus de 5 points !" << std::endl;
-        // Ajouter 10 points au score
-        // (Le score sera mis à jour dans la classe Game)
     }
     // Récupérer les mots valides trouvés
     const std::vector<std::string>& getValidWords() const {
         return validWords;
     }
-
 
     // Dessiner le joueur
     void draw(sf::RenderWindow& window, float cellSize, const sf::Texture& playerTexture, float startX, float startY) {
@@ -743,7 +738,6 @@ public:
         }
     }
 };
-
 // Classe pour gérer l'affichage des résultats
 class ResultsScreen {
 public:
@@ -753,6 +747,8 @@ public:
     sf::Text validWordsText;
     sf::Text scoreText;
     sf::Text timeText;
+    //sf::Texture backgroundTextureVictory; // Texture pour la victoire
+    sf::Texture backgroundTextureDefeat;  // Texture pour la défaite
     sf::Texture backgroundTexture;
     sf::Sprite backgroundSprite;
     sf::Text usernameText;
@@ -796,10 +792,24 @@ public:
         usernameText.setPosition(50, 50);
 
         // Charger l'arrière-plan (si nécessaire)
-        if (!backgroundTexture.loadFromFile("victory_background.png")) {
+        if (!backgroundTexture.loadFromFile("image8.jpg")) {
             std::cerr << "Erreur: Impossible de charger la texture de l'arrière-plan (victory_background.png)" << std::endl;
         }
+        if (!backgroundTextureDefeat.loadFromFile("image4.jpg")) {
+            std::cerr << "Erreur: Impossible de charger la texture de l'arrière-plan (defeat_background.png)" << std::endl;
+        }
+
         backgroundSprite.setTexture(backgroundTexture);
+
+        // Redimensionner l'arrière-plan pour qu'il couvre toute la fenêtre
+        sf::Vector2u windowSize(800, 800); // Taille de la fenêtre
+        sf::Vector2u textureSize = backgroundTexture.getSize();
+        float scaleX = static_cast<float>(windowSize.x) / textureSize.x;
+        float scaleY = static_cast<float>(windowSize.y) / textureSize.y;
+        backgroundSprite.setScale(scaleX, scaleY);
+
+
+
     }
     void setUsername(const std::string& username) {
         usernameText.setString("Nom d'utilisateur: " + username);
@@ -822,10 +832,12 @@ public:
         if (isVictory) {
             victoryText.setString("Victoire !");
             victoryText.setFillColor(sf::Color::Green);
+            backgroundSprite.setTexture(backgroundTexture); // Utiliser l'arrière-plan de victoire
         }
         else {
             victoryText.setString("Defaite !");
             victoryText.setFillColor(sf::Color::Red);
+            backgroundSprite.setTexture(backgroundTextureDefeat); // Utiliser l'arrière-plan de défaite
         }
 
         // Afficher les résultats dans le terminal
@@ -841,6 +853,10 @@ public:
     }
 
     void draw(sf::RenderWindow& window) {
+        // Définir la taille de la fenêtre des résultats (800x800)
+        window.setSize(sf::Vector2u(800, 800));
+        window.setView(sf::View(sf::FloatRect(0, 0, 800, 800))); // Ajuster la vue
+
         window.clear(sf::Color::White);
 
         // Dessiner l'arrière-plan (si nécessaire)
@@ -854,27 +870,27 @@ public:
 
         // Dessiner les textes
         usernameText.setFillColor(sf::Color::Black);
-        usernameText.setPosition(100, 60);
+        usernameText.setPosition(100, 190);
         window.draw(usernameText);
 
         victoryText.setFillColor(sf::Color::Black);
-        victoryText.setPosition(100, 60);
+        victoryText.setPosition(300, 70);
         window.draw(victoryText);
 
         collectedLettersText.setFillColor(sf::Color::Black);
-        collectedLettersText.setPosition(100, 120);
+        collectedLettersText.setPosition(100, 240);
         window.draw(collectedLettersText);
 
         validWordsText.setFillColor(sf::Color::Black);
-        validWordsText.setPosition(100, 180);
+        validWordsText.setPosition(100, 290);
         window.draw(validWordsText);
 
         scoreText.setFillColor(sf::Color::Black);
-        scoreText.setPosition(100, 240);
+        scoreText.setPosition(100, 340);
         window.draw(scoreText);
 
         timeText.setFillColor(sf::Color::Black);
-        timeText.setPosition(100, 300);
+        timeText.setPosition(100, 390);
         window.draw(timeText);
 
         window.display();
@@ -1180,29 +1196,21 @@ public:
 
             // Vérifier si un mot a été formé
             if (player.collectedLetters.size() >= 2) {
-                std::vector<std::string> newValidWords = findValidWords(player.collectedLetters);
+                player.checkForValidWords(dictionary);
 
-                // Ajouter les nouveaux mots valides à la liste
-                for (const std::string& word : newValidWords) {
-                    if (std::find(player.validWords.begin(), player.validWords.end(), word) == player.validWords.end()) {
-                        player.validWords.push_back(word);
-                        score += 50;
-                        std::cout << "Mot valide trouvé : " << word << std::endl;
-                        std::cout << "Nouveau score : " << score << std::endl;
-                    }
+                // Afficher un message si aucun mot valide n'a été trouvé
+                if (player.validWords.empty()) {
+                    std::cout << "Aucun mot valide trouvé." << std::endl;
                 }
-
-                // Réinitialiser les lettres collectées et le chemin pris
-                player.collectedLetters.clear();
-                player.pathTaken.clear();
             }
-
             // Vérifier si le joueur traverse une case spéciale
             if (player.position->isSpecial) {
-                score += 5;
-                std::cout << "Case spéciale traversée ! +5 points. Score actuel : " << score << std::endl;
-                player.position->isSpecial = false;
+                score += player.position->specialBonus;
+                std::cout << "Case spéciale traversée ! +" << player.position->specialBonus << " points. Score actuel : " << score << std::endl;
+                player.position->isSpecial = false; // Désactiver la case spéciale après utilisation
             }
+
+
         }
     }
     void calculateFinalScore() {
@@ -1319,10 +1327,15 @@ public:
                             window.draw(letterText);
                         }
 
-                        // Dessiner le badge si c'est la case d'arrivée
                         if (node->isExit) {
-                            sf::RectangleShape badgeShape(sf::Vector2f(40.f, 40.f));
-                            badgeShape.setPosition(startX + j * 40.f, startY + i * 40.f);
+                            // Réduire la taille du rectangle (par exemple, 20x20 au lieu de 40x40)
+                            sf::RectangleShape badgeShape(sf::Vector2f(32.f, 32.f));
+
+                            // Ajuster la position pour centrer l'image si nécessaire
+                            float offsetX = (40.f - 32.f) / 2.f; // Ajustement pour centrer horizontalement
+                            float offsetY = (40.f - 32.f) / 2.f; // Ajustement pour centrer verticalement
+
+                            badgeShape.setPosition(startX + j * 40.f + offsetX, startY + i * 40.f + offsetY);
                             badgeShape.setTexture(&badgeTexture);
                             window.draw(badgeShape);
                         }
@@ -1335,11 +1348,19 @@ public:
                             window.draw(blockedShape);
                         }
 
-                        // Dessiner les cases spéciales
                         if (node->isSpecial) {
-                            sf::RectangleShape specialShape(sf::Vector2f(40.f, 40.f));
-                            specialShape.setPosition(startX + j * 40.f, startY + i * 40.f);
+                            // Définir la taille de la case spéciale (par exemple, 32x32 au lieu de 40x40)
+                            float specialSize = 32.f;
+                            sf::RectangleShape specialShape(sf::Vector2f(specialSize, specialSize));
+
+                            // Calculer la position pour centrer la case spéciale dans la case du labyrinthe
+                            float offset = (40.f - specialSize) / 2.f; // 40.f est la taille de la case du labyrinthe
+                            specialShape.setPosition(startX + j * 40.f + offset, startY + i * 40.f + offset);
+
+                            // Appliquer la texture
                             specialShape.setTexture(&specialTexture);
+
+                            // Dessiner la case spéciale
                             window.draw(specialShape);
                         }
                     }
@@ -1411,10 +1432,10 @@ int main() {
             game.resultsScreen.setUsername(homeScreen.usernameInputString);
             // Passer les coordonnées de départ au labyrinthe
             game.maze.placeEntry(homeScreen.startPosition.x, homeScreen.startPosition.y);
-
+            // Placer les cases bonus
+            game.maze.placeBonusCells(5); // Par exemple, placer 5 cases bonus
             game.run();
         }
     }
-
     return 0;
 }
